@@ -1,0 +1,119 @@
+---
+title: "hw1_code_az2852"
+output: html_document
+date: "2025-10-02"
+---
+
+```{r setup, include=FALSE}
+library(survival)
+library(tidyverse)
+```
+
+# Question 1
+```{r}
+relapse_time <- c(5, 8, 12, 20, 32, 27, 16, 17, 19, 30)  # relapse
+relapse_censoring_status <- c(1, 1, 1, 1, 1, 1, 0, 0, 0, 0)       # 1=relapsed, 0=censored
+
+relapse_km_fit = survfit(Surv(relapse_time, relapse_censoring_status)~1)
+relapse_km_fit
+plot(relapse_km_fit)
+```
+```{r}
+surv_time <- c(8, 12, 15, 33, 45, 28, 16, 17, 19, 30)
+surv_censoring_status <- c(1, 1, 1, 0, 0, 0, 0, 0, 0, 0)
+
+surv_km_fit <- survfit(Surv(surv_time, surv_censoring_status) ~ 1)
+surv_km_fit
+plot(surv_km_fit)
+```
+
+
+# Question 2
+```{r}
+times  <- c(22, 2, 48, 80, 160, 238, 56, 94, 51, 12, 161, 80, 180, 4, 90, 180, 3)
+status <- c(1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1) 
+
+km_fit <- survfit(Surv(times, status) ~ 1, conf.type = "plain")   # linear CI
+km_fit_loglog <- survfit(Surv(times, status) ~ 1, conf.type = "log-log") # log–log CI
+
+summary(km_fit)
+summary(km_fit_loglog)
+plot(km_fit_loglog, conf.int = TRUE, main = "KM Survival Curve with 95% CI (log-log)")
+quantile(km_fit_loglog, probs = c(0.25, 0.5, 0.75))
+abline(h = 0.75, col = "blue")
+abline(h = 0.5, col = "yellow")
+abline(h = 0.25, col = "green")
+```
+```{r}
+cumhaz_km <- -log(km_fit_loglog$surv)
+km_times <- km_fit_loglog$time
+
+plot(km_times, cumhaz_km, type="s",
+     xlab="Time (days)", ylab="Cumulative Hazard",
+     main="Cumulative Hazard from KM")
+```
+```{r}
+# Nelson–Aalen estimator
+na_fit <- survfit(coxph(Surv(times, status) ~ 1), type="aalen")
+
+# (i) CumHaz vs time
+plot(na_fit$time, -log(na_fit$surv), type="s",
+     xlab="Time", ylab="Cumulative Hazard", main="Cumulative Hazard vs Time")
+
+# (ii) log CumHaz vs log time
+cumhaz <- -log(na_fit$surv)
+plot(log(na_fit$time), log(cumhaz), type="p",
+     xlab="log(Time)", ylab="log(CumHaz)", main="Log Cumulative Hazard vs Log(t)")
+```
+```{r}
+fh_surv <- exp(-cumhaz)
+```
+# Question 2
+```{r}
+Q2_data = read_csv("Q2data_extracted.csv") %>% 
+  rename(time = Value,
+         status = Binary)
+```
+```{r}
+tab = Q2_data %>% 
+  mutate(interval = ceiling(time/30)) %>% 
+  group_by(interval) %>% 
+  summarise(d = sum(status == 1),
+            c = sum(status == 0)
+            ) %>% 
+  ungroup() %>% 
+  mutate(interval_left = (interval-1)*30,
+            interval_right = interval*30,
+            interval_days = paste(interval_left, interval_right, sep = "-"))
+
+tab$r[1]  = 17
+for (j in 2:nrow(tab)) {
+  tab$r[j] <- tab$r[j-1] - tab$d[j-1] - tab$c[j-1]
+}
+
+tab = tab %>%
+  mutate(r_eff = r - c/2,
+    q = d / r_eff,
+    p = 1-q,
+    S = cumprod(p),
+    hazard_at_interval = q/(30*(1-q/2))
+  ) %>% 
+  select(interval, interval_left, interval_right, r, d, c, r_eff,q, p, S, hazard_at_interval)
+  
+
+tab %>% 
+  knitr::kable()
+```
+```{r}
+plot(stepfun(tab$interval_right, c(1, tab$S)),
+     xlab = "Time (days)", ylab = "Survival Probability",
+     main = "Actuarial Lifetable Survival (30-day intervals)",
+     do.points = FALSE)
+
+interval_mid <- tab$interval * 30 - 15  
+
+plot(interval_mid, tab$hazard_at_interval, type="b", pch=16,
+     xlab = "Interval midpoint (days)", ylab = "Hazard per day",
+     main = "Interval Hazard (Actuarial)")
+```
+
